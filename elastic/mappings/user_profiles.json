@@ -1,0 +1,36 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "user_id": {
+        "type": "keyword"
+      },
+      "last_updated": {
+        "type": "date",
+        "format": "strict_date_optional_time||epoch_millis"
+      },
+      "interests": {
+        "type": "keyword"
+      },
+      "dislikes": {
+        "type": "keyword"
+      },
+      "persona": {
+        "type": "text"
+      },
+      "communication_style": {
+        "type": "keyword"
+      },
+      "technical_depth": {
+        "type": "keyword"
+      },
+      "profile_vector": {
+        "type": "dense_vector",
+        "dims": 768
+      }
+    }
+  }
+}
