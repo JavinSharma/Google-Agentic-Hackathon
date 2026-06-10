@@ -1,0 +1,9 @@
+google-adk
+google-genai 
+fastapi 
+uvicorn[standard]
+pydantic 
+streamlit 
+elasticsearch 
+httpx 
+python-dotenv
