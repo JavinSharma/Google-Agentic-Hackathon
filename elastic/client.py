@@ -2,6 +2,7 @@ import os
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from elasticsearch import AsyncElasticsearch
+from typing import Any
 
 load_dotenv()
 
@@ -30,7 +31,7 @@ async def get_client() -> AsyncElasticsearch:
     return _client
 
 
-async def ingest_event(event_dict: dict) -> dict:
+async def ingest_event(event_dict: dict) -> Any:
     try:
         client = await get_client()
         
