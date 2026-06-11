@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from typing import Any
 from dotenv import load_dotenv
 from elasticsearch import AsyncElasticsearch
-from typing import Any
 from elasticsearch.exceptions import NotFoundError
 
 load_dotenv()
@@ -149,13 +148,15 @@ async def fetch_user_profile(user_id: str) -> dict | None:
 
 async def save_user_profile(user_id: str, profile_data: dict) -> dict:
     """
-    Upserts the synthesised persona profile for `user_id` into the
-    'user_profiles' index. Automatically injects 'user_id', 'last_updated',
-    and a zeroed 'profile_vector' if those keys are absent.
+    Merges `profile_data` into the persona profile for `user_id` in the
+    'user_profiles' index (partial update — fields not present in
+    `profile_data` are left untouched). Creates the document if it does not
+    exist yet (upsert), injecting 'user_id' and a zeroed 'profile_vector' as
+    defaults for new documents. 'last_updated' is always refreshed.
 
     Args:
         user_id:      The unique identifier for the user.
-        profile_data: Dictionary containing persona fields.
+        profile_data: Dictionary containing the persona fields to set/merge.
 
     Returns:
         The raw Elasticsearch response dict.
@@ -165,15 +166,14 @@ async def save_user_profile(user_id: str, profile_data: dict) -> dict:
     try:
         # Inject required fields if missing
         profile_data.setdefault("user_id", user_id)
-        profile_data.setdefault(
-            "last_updated", datetime.now(timezone.utc).isoformat()
-        )
         profile_data.setdefault("profile_vector", [0.0] * 768)
+        profile_data["last_updated"] = datetime.now(timezone.utc).isoformat()
 
-        response = await client.index(
+        response = await client.update(
             index="user_profiles",
             id=user_id,
-            document=profile_data,
+            doc=profile_data,
+            doc_as_upsert=True,
             refresh=True,       # make the doc immediately searchable
         )
         return response

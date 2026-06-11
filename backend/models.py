@@ -14,3 +14,14 @@ class EventResponse(BaseModel):
     success: bool
     event_id: str
     message: str
+
+
+class ChatRequest(BaseModel):
+    user_id: str
+    message: str
+    session_id: str = "default"
+
+
+class ChatResponse(BaseModel):
+    response: str
+    thought_trace: list[dict] = Field(default_factory=list)

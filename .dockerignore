@@ -1,0 +1,13 @@
+.env
+.git
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+*.egg-info/
+node_modules/
+.idea/
+.vscode/
+deploy/smoke_test_plan.md
