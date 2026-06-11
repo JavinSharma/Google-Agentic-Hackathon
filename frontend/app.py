@@ -1,5 +1,6 @@
 import os
 import asyncio
+import uuid
 import streamlit as st
 import httpx
 
@@ -118,6 +119,31 @@ async def fire_event(user_id: str, action_type: str, topic: str) -> dict:
         return response.json()
 
 
+async def send_query(user_id: str, message: str, session_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(
+            f"{BACKEND_URL}/api/query",
+            json={"user_id": user_id, "message": message, "session_id": session_id},
+        )
+        response.raise_for_status()
+        return response.json()
+
+
+def render_thought_trace(thought_trace: list[dict]) -> None:
+    """Renders a list of {"type": "tool_call"|"tool_response", "data": {...}} frames."""
+    with st.expander("🔍 Thought Trace"):
+        for frame in thought_trace:
+            data = frame.get("data", {})
+            if frame.get("type") == "tool_call":
+                st.markdown(f"🔧 **Calling** `{data.get('name', '?')}`")
+                if data.get("args"):
+                    st.json(data["args"])
+            else:
+                st.markdown(f"↩️ **Response from** `{data.get('name', '?')}`")
+                if data.get("response"):
+                    st.json(data["response"])
+
+
 def run_async(coro):
     """Bridge async coroutines into Streamlit's synchronous execution model."""
     try:
@@ -169,6 +195,48 @@ with col3:
             st.success("Tracked: **dismiss** → finance")
         except Exception as e:
             st.error(f"Failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Main page — Chat (Slice 3) + Thought Trace (Slice 4)
+# ---------------------------------------------------------------------------
+st.divider()
+st.subheader("💬 Chat with your Hyper-Context Agent")
+st.caption("Responses adapt to the persona shown in the sidebar.")
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+if "session_id" not in st.session_state:
+    st.session_state.session_id = str(uuid.uuid4())
+
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+        if msg["role"] == "assistant" and msg.get("thought_trace"):
+            render_thought_trace(msg["thought_trace"])
+
+if prompt := st.chat_input("Ask me anything..."):
+    st.session_state.chat_history.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Thinking..."):
+            try:
+                result = run_async(send_query(user_id, prompt, st.session_state.session_id))
+                response_text = result["response"]
+                thought_trace = result.get("thought_trace", [])
+            except Exception as e:
+                response_text = f"⚠️ Error: {e}"
+                thought_trace = []
+
+        st.markdown(response_text)
+        if thought_trace:
+            render_thought_trace(thought_trace)
+
+    st.session_state.chat_history.append(
+        {"role": "assistant", "content": response_text, "thought_trace": thought_trace}
+    )
+    st.rerun()
 
 # ---------------------------------------------------------------------------
 # Sidebar — Live Personalization Profile (Slice 2)
