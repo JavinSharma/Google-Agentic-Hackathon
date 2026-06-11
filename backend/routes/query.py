@@ -1,13 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from agent.agent import run_agent
+from backend.limiter import limiter
 from backend.models import ChatRequest, ChatResponse
 
 router = APIRouter(prefix="/api", tags=["query"])
 
 
 @router.post("/query", response_model=ChatResponse)
-async def query(req: ChatRequest) -> ChatResponse:
+@limiter.limit("10/minute")
+async def query(request: Request, req: ChatRequest) -> ChatResponse:
     try:
         final_text, thought_trace = await run_agent(req.user_id, req.message, req.session_id)
     except Exception as e:

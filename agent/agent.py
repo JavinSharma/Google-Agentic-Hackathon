@@ -29,7 +29,7 @@ context_engine_tools = McpToolset(
 
 root_agent = LlmAgent(
     name="hyper_context_agent",
-    model="gemini-2.5-flash",
+    model="gemini-2.5-flash-lite",
     instruction=SYSTEM_INSTRUCTION,
     tools=[log_user_action, context_engine_tools],
 )

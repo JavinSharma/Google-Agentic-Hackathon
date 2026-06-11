@@ -90,12 +90,12 @@ async def trigger_profile_synthesis(user_id: str) -> dict:
     events_text = "\n".join(lines)
     prompt = USER_PROFILE_SYNTHESIS_PROMPT.format(events_json=events_text)
 
-    # 3. Call Gemini 2.0 Flash with structured output (async) ---------------
+    # 3. Call Gemini 2.5 Flash Lite with structured output (async) ---------------
     api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     client = genai.Client(api_key=api_key) if api_key else genai.Client()
 
     response = await client.aio.models.generate_content(
-        model="gemini-2.0-flash",
+        model="gemini-2.5-flash-lite",
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",

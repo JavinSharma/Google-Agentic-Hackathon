@@ -8,13 +8,18 @@ from elasticsearch.exceptions import NotFoundError
 
 load_dotenv()
 
-_client: AsyncElasticsearch | None = None
+import asyncio
+
+_clients = {}
 _user_profiles_initialized: bool = False
 
-
 async def get_client() -> AsyncElasticsearch:
-    global _client
-    if _client is None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop not in _clients:
         elastic_url = os.getenv("ELASTIC_URL")
         elastic_api_key = os.getenv("ELASTIC_API_KEY")
 
@@ -22,16 +27,14 @@ async def get_client() -> AsyncElasticsearch:
             raise ValueError("ELASTIC_URL environment variable is not set")
 
         try:
-            _client = AsyncElasticsearch(
-                elastic_url,
-                api_key=elastic_api_key,
-                request_timeout=30
+            _clients[loop] = AsyncElasticsearch(
+                elastic_url, api_key=elastic_api_key, request_timeout=30
             )
         except Exception as e:
             print(f"Error connecting to Elasticsearch: {e}")
             raise
 
-    return _client
+    return _clients[loop]
 
 
 async def ingest_event(event_dict: dict) -> Any:
@@ -41,10 +44,7 @@ async def ingest_event(event_dict: dict) -> Any:
         if "timestamp" not in event_dict:
             event_dict["timestamp"] = datetime.now(timezone.utc).isoformat()
 
-        response = await client.index(
-            index="behavioral_events",
-            document=event_dict
-        )
+        response = await client.index(index="behavioral_events", document=event_dict)
 
         return response
     except Exception as e:
@@ -55,6 +55,7 @@ async def ingest_event(event_dict: dict) -> Any:
 # ---------------------------------------------------------------------------
 # Person B — Context Engine Read Methods
 # ---------------------------------------------------------------------------
+
 
 async def _ensure_user_profiles_index() -> None:
     """
@@ -77,7 +78,9 @@ async def _ensure_user_profiles_index() -> None:
                 with open(mapping_path, "r", encoding="utf-8") as f:
                     mapping_body = json.load(f)
                 await client.indices.create(index="user_profiles", body=mapping_body)
-                print("[elastic/client] Created 'user_profiles' index from schema file.")
+                print(
+                    "[elastic/client] Created 'user_profiles' index from schema file."
+                )
             else:
                 # Fallback: create with dynamic mappings if schema file is missing
                 await client.indices.create(index="user_profiles")
@@ -108,11 +111,7 @@ async def fetch_recent_events(user_id: str, limit: int = 15) -> list[dict]:
     try:
         response = await client.search(
             index="behavioral_events",
-            query={
-                "bool": {
-                    "must": [{"term": {"user_id": user_id}}]
-                }
-            },
+            query={"bool": {"must": [{"term": {"user_id": user_id}}]}},
             sort=[{"timestamp": {"order": "desc"}}],
             size=limit,
         )
@@ -146,7 +145,7 @@ async def fetch_user_profile(user_id: str) -> dict | None:
         return None
 
 
-async def save_user_profile(user_id: str, profile_data: dict) -> dict:
+async def save_user_profile(user_id: str, profile_data: dict) -> Any:
     """
     Merges `profile_data` into the persona profile for `user_id` in the
     'user_profiles' index (partial update — fields not present in
@@ -166,7 +165,8 @@ async def save_user_profile(user_id: str, profile_data: dict) -> dict:
     try:
         # Inject required fields if missing
         profile_data.setdefault("user_id", user_id)
-        profile_data.setdefault("profile_vector", [0.0] * 768)
+        # Cosine similarity fails on zero-magnitude vectors, so use a tiny non-zero value
+        profile_data.setdefault("profile_vector", [1e-5] * 768)
         profile_data["last_updated"] = datetime.now(timezone.utc).isoformat()
 
         response = await client.update(
@@ -174,7 +174,7 @@ async def save_user_profile(user_id: str, profile_data: dict) -> dict:
             id=user_id,
             doc=profile_data,
             doc_as_upsert=True,
-            refresh=True,       # make the doc immediately searchable
+            refresh=True,  # make the doc immediately searchable
         )
         return response
     except Exception as e:

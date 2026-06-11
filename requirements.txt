@@ -9,3 +9,4 @@ elasticsearch
 aiohttp
 httpx
 python-dotenv
+slowapi

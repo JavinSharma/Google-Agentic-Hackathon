@@ -1,8 +1,12 @@
 import os
+import sys
 import asyncio
 import uuid
 import streamlit as st
 import httpx
+
+# Ensure project root is in sys.path and takes precedence over site-packages
+sys.path.insert(1, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from elastic.client import fetch_user_profile
 
@@ -145,17 +149,8 @@ def render_thought_trace(thought_trace: list[dict]) -> None:
 
 
 def run_async(coro):
-    """Bridge async coroutines into Streamlit's synchronous execution model."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result()
-        return loop.run_until_complete(coro)
-    except RuntimeError:
-        return asyncio.run(coro)
+    """Bridge async coroutines into Streamlit's synchronous execution model cleanly."""
+    return asyncio.run(coro)
 
 
 # ---------------------------------------------------------------------------
@@ -168,33 +163,55 @@ st.divider()
 st.subheader("⚡ Activity Simulator")
 st.caption("Fire synthetic behavioral events to populate your user's history.")
 
-user_id = st.text_input("User ID", value="user_001", key="user_id_input")
+def handle_user_change():
+    st.session_state.chat_history = []
+    st.session_state.session_id = str(uuid.uuid4())
 
-col1, col2, col3 = st.columns(3)
+st.markdown("#### 👤 Current User Context")
+user_col, btn_col = st.columns([3, 1])
 
-with col1:
-    if st.button("📖 Read ML Article", use_container_width=True):
+with user_col:
+    user_id = st.text_input("User ID", value="user_001", key="user_id_input", on_change=handle_user_change)
+    st.caption("Change this ID and press Enter to switch to a different user's profile.")
+
+with btn_col:
+    st.write("") # spacing
+    st.write("")
+    if st.button("🔄 Logout / Clear Chat", use_container_width=True):
+        handle_user_change()
+        st.rerun()
+
+def _sim_btn(label, action, topic):
+    if st.button(label, use_container_width=True):
         try:
-            run_async(fire_event(user_id, "view", "machine learning"))
-            st.success("Tracked: **view** → machine learning")
+            run_async(fire_event(user_id, action, topic))
+            st.success(f"Tracked: **{action}** → {topic}")
         except Exception as e:
             st.error(f"Failed: {e}")
 
-with col2:
-    if st.button("🔬 Search Quantum Computing", use_container_width=True):
-        try:
-            run_async(fire_event(user_id, "search", "quantum computing"))
-            st.success("Tracked: **search** → quantum computing")
-        except Exception as e:
-            st.error(f"Failed: {e}")
+st.markdown("##### 💻 Tech & Science")
+c1, c2, c3 = st.columns(3)
+with c1: _sim_btn("📖 Read ML Article", "view", "machine learning")
+with c2: _sim_btn("🔬 Search Quantum Computing", "search", "quantum computing")
+with c3: _sim_btn("❌ Dismiss Blockchain", "dismiss", "blockchain")
 
-with col3:
-    if st.button("❌ Dismiss Finance News", use_container_width=True):
-        try:
-            run_async(fire_event(user_id, "dismiss", "finance"))
-            st.success("Tracked: **dismiss** → finance")
-        except Exception as e:
-            st.error(f"Failed: {e}")
+st.markdown("##### 🎨 Arts & Lifestyle")
+c4, c5, c6 = st.columns(3)
+with c4: _sim_btn("🖼️ View Renaissance Art", "view", "art history")
+with c5: _sim_btn("🎸 Search Indie Rock", "search", "indie music")
+with c6: _sim_btn("❌ Dismiss Reality TV", "dismiss", "reality television")
+
+st.markdown("##### 🏃 Health & Productivity")
+c7, c8, c9 = st.columns(3)
+with c7: _sim_btn("👟 View Marathon Training", "view", "running")
+with c8: _sim_btn("🥗 Search Vegan Recipes", "search", "vegan cooking")
+with c9: _sim_btn("❌ Dismiss Fast Food", "dismiss", "fast food")
+
+st.markdown("##### 📈 Finance & Business")
+c10, c11, c12 = st.columns(3)
+with c10: _sim_btn("📊 View Index Funds", "view", "investing")
+with c11: _sim_btn("🏢 Search Startup Funding", "search", "startups")
+with c12: _sim_btn("❌ Dismiss Crypto News", "dismiss", "cryptocurrency")
 
 # ---------------------------------------------------------------------------
 # Main page — Chat (Slice 3) + Thought Trace (Slice 4)
