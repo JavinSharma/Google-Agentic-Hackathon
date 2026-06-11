@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import uuid
+import hashlib
 import streamlit as st
 import httpx
 
@@ -13,6 +14,19 @@ from elastic.client import fetch_user_profile
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 # ---------------------------------------------------------------------------
+# Demo credentials  (username → sha256(password))
+# In production, replace with a real auth backend / OAuth flow.
+# ---------------------------------------------------------------------------
+def _hash(pw: str) -> str:
+    return hashlib.sha256(pw.encode()).hexdigest()
+
+DEMO_USERS: dict[str, dict] = {
+    "user_001": {"password_hash": _hash("demo1234"),  "display_name": "Alice (Demo)"},
+    "user_002": {"password_hash": _hash("demo5678"),  "display_name": "Bob (Demo)"},
+    "admin":    {"password_hash": _hash("admin2024"), "display_name": "Admin"},
+}
+
+# ---------------------------------------------------------------------------
 # Page config
 # ---------------------------------------------------------------------------
 st.set_page_config(
@@ -21,6 +35,258 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ---------------------------------------------------------------------------
+# Login CSS — full-viewport hero + glassmorphic card
+# ---------------------------------------------------------------------------
+LOGIN_CSS = """
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+/* ---- Hide Streamlit chrome on login page ---- */
+[data-testid="stSidebar"]        { display: none !important; }
+[data-testid="stToolbar"]        { display: none !important; }
+[data-testid="stDecoration"]     { display: none !important; }
+header                           { display: none !important; }
+footer                           { display: none !important; }
+
+/* ---- Full-viewport background ---- */
+.login-bg {
+    position: fixed; inset: 0; z-index: 0;
+    background: radial-gradient(ellipse at 20% 50%, #1a0533 0%, #0a0a1a 55%, #001233 100%);
+    overflow: hidden;
+}
+
+/* ---- Animated glow orbs ---- */
+.orb {
+    position: absolute; border-radius: 50%;
+    filter: blur(80px); opacity: 0.45;
+    animation: float 8s ease-in-out infinite;
+}
+.orb-1 { width:420px; height:420px; background:#7F00FF;
+          top:-80px; left:-80px; animation-delay:0s; }
+.orb-2 { width:340px; height:340px; background:#E100FF;
+          bottom:-60px; right:-60px; animation-delay:-3s; }
+.orb-3 { width:260px; height:260px; background:#00B4FF;
+          top:40%; left:55%; animation-delay:-6s; }
+
+@keyframes float {
+    0%,100% { transform: translateY(0px) scale(1); }
+    50%      { transform: translateY(-30px) scale(1.06); }
+}
+
+/* ---- Card wrapper ---- */
+.login-card {
+    position: relative; z-index: 10;
+    background: rgba(255,255,255,0.055);
+    border: 1px solid rgba(255,255,255,0.13);
+    border-radius: 24px;
+    padding: 48px 44px 40px;
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 8px 48px rgba(0,0,0,0.55),
+                0 0 0 1px rgba(255,255,255,0.06) inset;
+    max-width: 440px;
+    margin: 0 auto;
+    font-family: 'Inter', sans-serif;
+}
+
+/* ---- Logo / brand ---- */
+.login-logo {
+    font-size: 52px;
+    text-align: center;
+    margin-bottom: 4px;
+    filter: drop-shadow(0 0 24px rgba(127,0,255,0.7));
+}
+.login-brand {
+    text-align: center;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    background: linear-gradient(135deg, #bf7fff 0%, #e040fb 50%, #7c4dff 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 4px;
+}
+.login-tagline {
+    text-align: center;
+    font-size: 13px;
+    color: #8892a4;
+    margin-bottom: 36px;
+    letter-spacing: 0.2px;
+}
+
+/* ---- Divider ---- */
+.login-divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    margin: 28px 0;
+}
+
+/* ---- Demo hint badge ---- */
+.demo-hint {
+    background: rgba(127,0,255,0.15);
+    border: 1px solid rgba(127,0,255,0.3);
+    border-radius: 10px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: #c8a8ff;
+    margin-top: 24px;
+    line-height: 1.7;
+}
+.demo-hint code {
+    background: rgba(255,255,255,0.1);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 11.5px;
+    color: #e0c8ff;
+}
+
+/* ---- Error box ---- */
+.login-error {
+    background: rgba(255,65,108,0.15);
+    border: 1px solid rgba(255,65,108,0.35);
+    border-radius: 10px;
+    padding: 10px 14px;
+    font-size: 13px;
+    color: #ff8fab;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+/* ---- Streamlit input overrides ---- */
+[data-testid="stTextInput"] > div > div > input {
+    background: rgba(255,255,255,0.07) !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+    border-radius: 10px !important;
+    color: #ffffff !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 14px !important;
+    padding: 10px 14px !important;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+[data-testid="stTextInput"] > div > div > input:focus {
+    border-color: rgba(127,0,255,0.6) !important;
+    box-shadow: 0 0 0 3px rgba(127,0,255,0.18) !important;
+    outline: none !important;
+}
+[data-testid="stTextInput"] label {
+    color: #a0aec0 !important;
+    font-size: 12.5px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.4px !important;
+    text-transform: uppercase !important;
+}
+
+/* ---- Primary button override ---- */
+[data-testid="stFormSubmitButton"] > button,
+.login-btn button {
+    width: 100% !important;
+    background: linear-gradient(135deg, #7F00FF 0%, #E100FF 100%) !important;
+    border: none !important;
+    border-radius: 12px !important;
+    color: #ffffff !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    padding: 12px 0 !important;
+    letter-spacing: 0.3px !important;
+    cursor: pointer !important;
+    transition: transform 0.15s ease, box-shadow 0.15s ease !important;
+    box-shadow: 0 4px 20px rgba(127,0,255,0.45) !important;
+    margin-top: 8px !important;
+}
+[data-testid="stFormSubmitButton"] > button:hover,
+.login-btn button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 30px rgba(127,0,255,0.65) !important;
+}
+[data-testid="stFormSubmitButton"] > button:active {
+    transform: translateY(0px) !important;
+}
+</style>
+"""
+
+
+def render_login_page() -> None:
+    """Render the full-screen login page and handle auth state."""
+    st.markdown(LOGIN_CSS, unsafe_allow_html=True)
+
+    # Background gradient + orbs
+    st.markdown(
+        """
+        <div class="login-bg">
+            <div class="orb orb-1"></div>
+            <div class="orb orb-2"></div>
+            <div class="orb orb-3"></div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Centre column layout
+    _, col, _ = st.columns([1, 1.4, 1])
+    with col:
+        st.markdown(
+            """
+            <div class="login-card">
+                <div class="login-logo">🧠</div>
+                <div class="login-brand">Hyper-Context Engine</div>
+                <div class="login-tagline">Google ADK · Gemini 2.0 Flash · Elasticsearch</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Error placeholder
+        error_box = st.empty()
+
+        # Login form
+        with st.form("login_form", clear_on_submit=False):
+            username = st.text_input("Username", placeholder="e.g. user_001")
+            password = st.text_input("Password", type="password", placeholder="Enter your password")
+            submitted = st.form_submit_button("Sign In →")
+
+        if submitted:
+            user_rec = DEMO_USERS.get(username)
+            if user_rec and user_rec["password_hash"] == _hash(password):
+                st.session_state.authenticated = True
+                st.session_state.logged_in_user = username
+                st.session_state.display_name = user_rec["display_name"]
+                # Pre-seed the user_id_input so the main app uses the logged-in user
+                st.session_state.user_id_input = username
+                st.session_state.chat_history = []
+                st.session_state.session_id = str(uuid.uuid4())
+                st.rerun()
+            else:
+                error_box.markdown(
+                    '<div class="login-error">⚠️ Invalid username or password. Please try again.</div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown(
+            """
+            <div class="demo-hint">
+                <strong>🔑 Demo credentials</strong><br>
+                <code>user_001</code> / <code>demo1234</code><br>
+                <code>user_002</code> / <code>demo5678</code><br>
+                <code>admin</code> &nbsp;&nbsp;&nbsp;/ <code>admin2024</code>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Auth gate — must run before any other page content
+# ---------------------------------------------------------------------------
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+
+if not st.session_state.authenticated:
+    render_login_page()
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Global CSS — glassmorphic sidebar + pill tags
@@ -171,7 +437,8 @@ st.markdown("#### 👤 Current User Context")
 user_col, btn_col = st.columns([3, 1])
 
 with user_col:
-    user_id = st.text_input("User ID", value="user_001", key="user_id_input", on_change=handle_user_change)
+    _default_uid = st.session_state.get("logged_in_user", "user_001")
+    user_id = st.text_input("User ID", value=_default_uid, key="user_id_input", on_change=handle_user_change)
     st.caption("Change this ID and press Enter to switch to a different user's profile.")
 
 with btn_col:
@@ -259,6 +526,29 @@ if prompt := st.chat_input("Ask me anything..."):
 # Sidebar — Live Personalization Profile (Slice 2)
 # ---------------------------------------------------------------------------
 with st.sidebar:
+    # ---- Session header + logout ------------------------------------------
+    display = st.session_state.get("display_name", st.session_state.get("logged_in_user", "User"))
+    st.markdown(
+        f"""
+        <div style="
+            background: rgba(127,0,255,0.12);
+            border: 1px solid rgba(127,0,255,0.25);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin-bottom: 4px;
+        ">
+            <div style="font-size:12px;color:#8892a4;font-weight:600;letter-spacing:0.5px;text-transform:uppercase;">Signed in as</div>
+            <div style="font-size:15px;font-weight:700;color:#e0c8ff;margin-top:2px;">{display}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    if st.button("🚪 Sign Out", use_container_width=True):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+    st.divider()
+
     st.markdown("## 🪪 Live Personalization Profile")
     st.caption(f"Showing profile for `{user_id}`")
     st.divider()
